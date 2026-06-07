@@ -1,22 +1,22 @@
+import os
 import discord
 from discord.ext import commands
 
 # ============================================
-# VARIABLES - CHANGE THESE
+# VARIABLES - EDIT THESE
 # ============================================
 
-# Bot Configuration
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+# Get token from environment variable (SECURE)
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
-# Panel Configuration
+# Panel Configuration  
 PANEL_NAME = "FLASH TP"
 DESCRIPTION = "This control panel is for the project: FLASH TP"
 
-# Valid API Keys (user_id: {info})
+# Valid API Keys
 VALID_API_KEYS = {
     "api_key_123": {"user": "PremiumUser", "role": "premium"},
     "api_key_456": {"user": "BasicUser", "role": "basic"},
-    "api_key_789": {"user": "VIPMember", "role": "vip"},
 }
 
 # ============================================
@@ -44,7 +44,6 @@ async def on_ready():
 
 @bot.command(name='panel')
 async def show_panel(ctx):
-    """Show panel info"""
     embed = discord.Embed(
         title=f"📋 {PANEL_NAME}",
         description=DESCRIPTION,
@@ -54,7 +53,6 @@ async def show_panel(ctx):
 
 @bot.command(name='login')
 async def login(ctx, api_key: str = None):
-    """/login API_KEY_HERE"""
     if not api_key:
         await ctx.send("❌ Usage: `/login YOUR_API_KEY`")
         return
@@ -68,19 +66,17 @@ async def login(ctx, api_key: str = None):
 
 @bot.command(name='logout')
 async def logout(ctx):
-    """/logout"""
     if ctx.author.id in logged_in_users:
         del logged_in_users[ctx.author.id]
         await ctx.send("🚪 Logged out successfully!")
     else:
-        await ctx.send("❌ Not logged in. Use `/login` first.")
+        await ctx.send("❌ Not logged in.")
 
 def is_logged_in(ctx):
     return ctx.author.id in logged_in_users
 
 @bot.command(name='redeem')
 async def redeem(ctx, key: str = None):
-    """/redeem KEY_HERE"""
     if not is_logged_in(ctx):
         await ctx.send("❌ Login first: `/login API_KEY`")
         return
@@ -91,7 +87,6 @@ async def redeem(ctx, key: str = None):
 
 @bot.command(name='script')
 async def script(ctx):
-    """/script"""
     if not is_logged_in(ctx):
         await ctx.send("❌ Login first: `/login API_KEY`")
         return
@@ -99,7 +94,6 @@ async def script(ctx):
 
 @bot.command(name='role')
 async def role(ctx):
-    """/role"""
     if not is_logged_in(ctx):
         await ctx.send("❌ Login first: `/login API_KEY`")
         return
@@ -109,7 +103,6 @@ async def role(ctx):
 
 @bot.command(name='resethwid')
 async def reset_hwid(ctx):
-    """/resethwid"""
     if not is_logged_in(ctx):
         await ctx.send("❌ Login first: `/login API_KEY`")
         return
@@ -117,32 +110,37 @@ async def reset_hwid(ctx):
 
 @bot.command(name='stats')
 async def stats(ctx):
-    """/stats"""
     if not is_logged_in(ctx):
         await ctx.send("❌ Login first: `/login API_KEY`")
         return
     embed = discord.Embed(title="📊 Your Stats", color=discord.Color.gold())
     embed.add_field(name="HWID", value="✅ Active", inline=True)
     embed.add_field(name="Keys Redeemed", value="3", inline=True)
-    embed.add_field(name="Role", value=VALID_API_KEYS.get(logged_in_users[ctx.author.id], {}).get('role', 'User'), inline=True)
     await ctx.send(embed=embed)
-
-@bot.command(name='setpanel')
-@commands.has_permissions(administrator=True)
-async def set_panel(ctx, name: str = None, *, desc: str = None):
-    """/setpanel NAME DESCRIPTION (Admin only)"""
-    global PANEL_NAME, DESCRIPTION
-    if name:
-        PANEL_NAME = name
-    if desc:
-        DESCRIPTION = desc
-    await ctx.send(f"✅ Panel updated!\n**Name:** {PANEL_NAME}\n**Description:** {DESCRIPTION}")
 
 # ============================================
 # RUN BOT
 # ============================================
 
 if __name__ == "__main__":
+    # Check if token exists
+    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        print("❌ ERROR: BOT_TOKEN not set!")
+        print("")
+        print("Set your token using ONE of these methods:")
+        print("")
+        print("1. Environment variable:")
+        print("   export BOT_TOKEN='your_token_here'")
+        print("   python bot.py")
+        print("")
+        print("2. Run with token:")
+        print("   BOT_TOKEN='your_token' python bot.py")
+        print("")
+        print("3. Docker:")
+        print("   docker run -e BOT_TOKEN='your_token' ...")
+        print("")
+        exit(1)
+    
     print(f"""
     ╔════════════════════════════╗
     ║     {PANEL_NAME[:20]}    
