@@ -116,7 +116,7 @@ async def l_command(ctx, *, code: str = None):
                 await ctx.send("❌ Nothing to output - script may already be clean")
                 return
             
-            # Send as file always (no splitting)
+            # Send as file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
                 f.write(result)
                 f.flush()
@@ -141,7 +141,7 @@ async def get_command(ctx, *, url: str = None):
             script = await fetch_script(clean_url_str)
             
             if not script or len(script) < 10:
-                await ctx.send(f"❌ Failed to fetch from `{clean_url_str}` (empty response)")
+                await ctx.send(f"❌ Failed to fetch from `{clean_url_str}`")
                 return
             
             result = await asyncio.to_thread(process_script, script)
@@ -161,18 +161,6 @@ async def get_command(ctx, *, url: str = None):
             await ctx.send(f"❌ Network error: {str(e)[:100]}")
         except Exception as e:
             await ctx.send(f"❌ Error: {str(e)[:200]}")
-
-@bot.command(name='help')
-async def help_cmd(ctx):
-    """Show help"""
-    embed = discord.Embed(
-        title="🔓 LUNR Deobfuscator",
-        description="Deobfuscate Lua/Roblox scripts",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name=".l", value="Deobfuscate from code block or .lua file", inline=False)
-    embed.add_field(name=".get", value="Fetch and deobfuscate from URL", inline=False)
-    await ctx.send(embed=embed)
 
 # ============================================
 # RUN
