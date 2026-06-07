@@ -15,8 +15,6 @@ if not BOT_TOKEN:
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.direct_messages = True
-intents.guild_messages = True
 
 bot = commands.Bot(command_prefix='.', intents=intents)
 
@@ -78,7 +76,7 @@ async def fetch_script(url):
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user}')
+    print(f'✅ Logged in as {bot.user}')
     print('LUNR Deobfuscator Ready')
     print('Commands: .l, .get, .help')
 
