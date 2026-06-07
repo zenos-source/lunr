@@ -5,6 +5,7 @@ import re
 import base64
 import tempfile
 import aiohttp
+import asyncio
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
@@ -24,12 +25,7 @@ bot = commands.Bot(command_prefix='.', intents=intents)
 def process_script(content):
     """Main deobfuscation function"""
     
-    # Extract from code block
-    code_block = re.search(r'```(?:lua)?\n?([\s\S]*?)```', content)
-    if code_block:
-        script = code_block.group(1)
-    else:
-        script = content
+    script = content
     
     # Decode string.char chains
     def decode_chars(match):
@@ -37,7 +33,11 @@ def process_script(content):
         if nums:
             return '"' + ''.join(chr(int(n)) for n in nums) + '"'
         return match.group(0)
-    script = re.sub(r'(?:string\.char\(\d+\)(?:\.\.string\.char\(\d+\))*)', decode_chars, script)
+    
+    try:
+        script = re.sub(r'(?:string\.char\(\d+\)(?:\.\.string\.char\(\d+\))*)', decode_chars, script)
+    except:
+        pass
     
     # Decode loadstring wrappers
     for match in re.findall(r'loadstring\(["\']([^"\']+)["\']\)\s*\(\s*\)', script):
@@ -48,26 +48,22 @@ def process_script(content):
             pass
     
     # Reverse string.reverse()
-    script = re.sub(r'string\.reverse\(["\']([^"\']+)["\']\)', lambda m: '"' + m.group(1)[::-1] + '"', script)
-    
-    # Remove garbage
-    garbage_patterns = [
-        r'local _[a-zA-Z0-9]+ = {}\s*\n',
-        r'do local x=\d+ for i=1,\d+ do x=x\+i end end\s*\n',
-    ]
-    for pattern in garbage_patterns:
-        script = re.sub(pattern, '', script, flags=re.MULTILINE)
+    try:
+        script = re.sub(r'string\.reverse\(["\']([^"\']+)["\']\)', lambda m: '"' + m.group(1)[::-1] + '"', script)
+    except:
+        pass
     
     return script.strip()
 
 async def fetch_script(url):
-    """Fetch script from URL"""
-    async with aiohttp.ClientSession() as session:
+    """Fetch script from URL with timeout"""
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url) as response:
             if response.status == 200:
                 return await response.text()
             else:
-                raise Exception(f"Failed to fetch: HTTP {response.status}")
+                raise Exception(f"HTTP {response.status}")
 
 # ============================================
 # BOT COMMANDS
@@ -75,81 +71,92 @@ async def fetch_script(url):
 
 @bot.event
 async def on_ready():
-    print(f'✅ Logged in as {bot.user}')
-    print('LUNR Deobfuscator Ready')
+    print(f'✅ LUNR Ready - {bot.user}')
     print('Commands: .l , .get')
 
 @bot.command(name='l')
 async def l_command(ctx, *, code: str = None):
-    """Deobfuscate Lua code: .l ```lua code```"""
+    """Deobfuscate Lua code"""
     
     script = None
     
-    # Check for attachments
+    # Check attachments first
     if ctx.message.attachments:
         attachment = ctx.message.attachments[0]
         if attachment.filename.endswith('.lua'):
             data = await attachment.read()
             script = data.decode('utf-8')
     
-    # Check for code block in message
+    # Check for code block
     if not script and code:
         code_match = re.search(r'```(?:lua)?\n?([\s\S]*?)```', code)
         if code_match:
             script = code_match.group(1)
-        else:
+        elif code.strip():
             script = code.strip()
     
     if not script:
-        await ctx.send("❌ Provide .lua file or code block\n`.l ```lua print('hi')```")
+        await ctx.send("❌ No code found.\nUsage: `.l \\`\\`\\`lua code here \\`\\`\\`` or attach .lua file")
         return
     
-    await ctx.send("⏳ Processing...")
+    # Send initial message
+    msg = await ctx.send("🔓 Deobfuscating...")
     
     try:
-        result = process_script(script)
+        # Run in executor to not block
+        result = await asyncio.to_thread(process_script, script)
+        
+        if not result or len(result) < 10:
+            await msg.edit(content="❌ Nothing to output - script may already be clean")
+            return
         
         if len(result) < 1900:
-            await ctx.send(f"```lua\n{result}\n```")
+            await msg.edit(content=f"```lua\n{result[:1900]}\n```")
         else:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
-                f.write(result)
-                await ctx.send(file=discord.File(f.name))
-            os.unlink(f.name)
+            # Split into multiple messages if too long
+            for i in range(0, len(result), 1900):
+                await ctx.send(f"```lua\n{result[i:i+1900]}\n```")
+            await msg.delete()
+            
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+        await msg.edit(content=f"❌ Error: {str(e)[:200]}")
 
 @bot.command(name='get')
 async def get_command(ctx, url: str = None):
-    """Fetch and deobfuscate script from URL: .get https://pastebin.com/raw/xxx"""
+    """Fetch and deobfuscate from URL"""
     
     if not url:
         await ctx.send("❌ Usage: `.get https://pastebin.com/raw/xxx`")
         return
     
-    await ctx.send(f"⏳ Fetching script from URL...")
+    msg = await ctx.send(f"📥 Fetching: {url[:50]}...")
     
     try:
         script = await fetch_script(url)
         
         if not script or len(script) < 10:
-            await ctx.send("❌ Failed to fetch script or script is empty")
+            await msg.edit(content="❌ Failed to fetch script (empty response)")
             return
         
-        await ctx.send(f"⏳ Deobfuscating... (Fetched {len(script)} bytes)")
+        await msg.edit(content=f"🔓 Deobfuscating ({len(script)} bytes)...")
         
-        result = process_script(script)
+        result = await asyncio.to_thread(process_script, script)
+        
+        if not result or len(result) < 10:
+            await msg.edit(content="❌ Deobfuscation produced no output")
+            return
         
         if len(result) < 1900:
-            await ctx.send(f"```lua\n{result}\n```")
+            await msg.edit(content=f"```lua\n{result}\n```")
         else:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
-                f.write(result)
-                await ctx.send(file=discord.File(f.name))
-            os.unlink(f.name)
+            await msg.delete()
+            for i in range(0, len(result), 1900):
+                await ctx.send(f"```lua\n{result[i:i+1900]}\n```")
             
+    except aiohttp.ClientError as e:
+        await msg.edit(content=f"❌ Network error: {str(e)[:100]}")
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+        await msg.edit(content=f"❌ Error: {str(e)[:200]}")
 
 # ============================================
 # RUN
