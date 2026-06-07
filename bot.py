@@ -3,9 +3,9 @@ import discord
 from discord.ext import commands
 import re
 import base64
-import zlib
 import aiohttp
 import asyncio
+import tempfile
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
@@ -19,7 +19,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='.', intents=intents)
 
 # ============================================
-# PURE PYTHON LUNR DEOBFUSCATOR
+# LUNR DEOBFUSCATOR
 # ============================================
 
 def clean_url(url):
@@ -28,49 +28,30 @@ def clean_url(url):
     url = re.sub(r'^[\'"]+', '', url)
     return url
 
-def decode_string_chars(code):
-    """Convert string.char(104)..string.char(101) to text"""
-    def replace(match):
-        nums = re.findall(r'string\.char\((\d+)\)', match.group(0))
-        if nums:
-            return '"' + ''.join(chr(int(n)) for n in nums) + '"'
-        return match.group(0)
-    return re.sub(r'(?:string\.char\(\d+\)(?:\.\.string\.char\(\d+\))*)', replace, code)
-
-def decode_loadstring(code):
-    """Extract and decode loadstring wrappers"""
-    for match in re.findall(r'loadstring\(["\']([^"\']+)["\']\)\s*\(\s*\)', code):
+def deobfuscate(script):
+    # Decode loadstring
+    for match in re.findall(r'loadstring\(["\']([^"\']+)["\']\)\s*\(\s*\)', script):
         try:
             decoded = base64.b64decode(match).decode('utf-8')
-            code = code.replace(f'loadstring("{match}")()', decoded)
-            code = code.replace(f"loadstring('{match}')()", decoded)
+            script = script.replace(f'loadstring("{match}")()', decoded)
         except:
             pass
-    return code
-
-def decode_hex(code):
-    """Decode hex strings like \x48\x65\x6c\x6c\x6f"""
-    def replace(match):
-        hex_str = match.group(0)
-        try:
-            hex_bytes = re.findall(r'\\x([0-9a-fA-F]{2})', hex_str)
-            if hex_bytes:
-                return '"' + ''.join(chr(int(h, 16)) for h in hex_bytes) + '"'
-        except:
-            pass
-        return hex_str
-    return re.sub(r'(?:\\x[0-9a-fA-F]{2})+', replace, code)
-
-def reverse_strings(code):
-    """Convert string.reverse('text') back to normal"""
-    return re.sub(r'string\.reverse\(["\']([^"\']+)["\']\)', lambda m: '"' + m.group(1)[::-1] + '"', code)
-
-def remove_garbage(code):
-    """Remove junk code"""
-    lines = code.split('\n')
+    
+    # Decode string.char
+    def decode_chars(m):
+        nums = re.findall(r'string\.char\((\d+)\)', m.group(0))
+        if nums:
+            return '"' + ''.join(chr(int(n)) for n in nums) + '"'
+        return m.group(0)
+    script = re.sub(r'(?:string\.char\(\d+\)(?:\.\.string\.char\(\d+\))*)', decode_chars, script)
+    
+    # Reverse string.reverse
+    script = re.sub(r'string\.reverse\(["\']([^"\']+)["\']\)', lambda m: '"' + m.group(1)[::-1] + '"', script)
+    
+    # Remove garbage
+    lines = script.split('\n')
     cleaned = []
     skip = False
-    
     for line in lines:
         if 'if (true or false)' in line or 'if (1 + 1 == 2)' in line:
             if 'then' in line:
@@ -81,52 +62,30 @@ def remove_garbage(code):
             continue
         if skip:
             continue
-        if re.match(r'local _[a-zA-Z0-9]+ = {}\s*$', line):
-            continue
-        if re.match(r'for _[a-zA-Z0-9]+ = 1, \d+ do', line):
-            continue
         cleaned.append(line)
     
-    return '\n'.join(cleaned)
-
-def deobfuscate(script):
-    """Main deobfuscation pipeline"""
-    result = script
-    result = decode_loadstring(result)
-    result = decode_string_chars(result)
-    result = decode_hex(result)
-    result = reverse_strings(result)
-    result = remove_garbage(result)
-    
-    # Clean up multiple newlines
-    result = re.sub(r'\n\s*\n', '\n', result)
-    
-    return result.strip()
+    return '\n'.join(cleaned).strip()
 
 async def fetch_script(url):
-    """Fetch script from URL with timeout"""
     url = clean_url(url)
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url) as response:
             if response.status == 200:
                 return await response.text()
-            else:
-                raise Exception(f"HTTP {response.status}")
+            raise Exception(f"HTTP {response.status}")
 
 # ============================================
-# BOT COMMANDS
+# COMMANDS
 # ============================================
 
 @bot.event
 async def on_ready():
     print(f'✅ LUNR Ready - {bot.user}')
-    print('Pure Python - No Lua required')
+    print('Commands: .l , .get')
 
 @bot.command(name='l')
-async def l_command(ctx, *, code: str = None):
-    """Deobfuscate Lua code"""
-    
+async def l_cmd(ctx, *, code: str = None):
     script = None
     
     if ctx.message.attachments:
@@ -136,89 +95,68 @@ async def l_command(ctx, *, code: str = None):
             script = data.decode('utf-8')
     
     if not script and code:
-        code_match = re.search(r'```(?:lua)?\n?([\s\S]*?)```', code)
-        if code_match:
-            script = code_match.group(1)
+        match = re.search(r'```(?:lua)?\n?([\s\S]*?)```', code)
+        if match:
+            script = match.group(1)
         elif code.strip():
             script = code.strip()
     
     if not script:
-        await ctx.send("❌ No code found.\nUsage: `.l ```lua code``` or attach .lua file")
+        await ctx.send("❌ Usage: `.l ```lua code``` or attach .lua file")
         return
     
-    msg = await ctx.send("🔓 Deobfuscating...")
+    msg = await ctx.send("🔓 Processing...")
     
     try:
         result = await asyncio.to_thread(deobfuscate, script)
         
         if not result or len(result) < 10:
-            await msg.edit(content="❌ Nothing to output - script may already be clean")
+            await msg.edit(content="❌ No output")
             return
         
         if len(result) < 1900:
             await msg.edit(content=f"```lua\n{result}\n```")
         else:
-            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
                 f.write(result)
                 await ctx.send(file=discord.File(f.name, filename="deobfuscated.lua"))
                 os.unlink(f.name)
             await msg.delete()
-            
     except Exception as e:
         await msg.edit(content=f"❌ Error: {str(e)[:200]}")
 
 @bot.command(name='get')
-async def get_command(ctx, *, url: str = None):
-    """Fetch and deobfuscate from URL"""
-    
+async def get_cmd(ctx, *, url: str = None):
     if not url:
         await ctx.send("❌ Usage: `.get https://pastebin.com/raw/xxx`")
         return
     
-    clean = clean_url(url)
-    msg = await ctx.send(f"📥 Fetching from URL...")
+    msg = await ctx.send("📥 Fetching...")
     
     try:
-        script = await fetch_script(clean)
+        script = await fetch_script(url)
         
         if not script or len(script) < 10:
-            await msg.edit(content=f"❌ Failed to fetch from `{clean}`")
+            await msg.edit(content="❌ Failed to fetch")
             return
         
-        await msg.edit(content=f"🔓 Deobfuscating... ({len(script)} bytes)")
-        
+        await msg.edit(content="🔓 Deobfuscating...")
         result = await asyncio.to_thread(deobfuscate, script)
         
         if not result or len(result) < 10:
-            await msg.edit(content="❌ Deobfuscation produced no output")
+            await msg.edit(content="❌ No output")
             return
         
         if len(result) < 1900:
             await msg.edit(content=f"```lua\n{result}\n```")
         else:
-            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
                 f.write(result)
                 await ctx.send(file=discord.File(f.name, filename="deobfuscated.lua"))
                 os.unlink(f.name)
             await msg.delete()
-            
-    except asyncio.TimeoutError:
-        await msg.edit(content="❌ Request timed out")
     except Exception as e:
         await msg.edit(content=f"❌ Error: {str(e)[:200]}")
-
-@bot.command(name='help')
-async def help_cmd(ctx):
-    embed = discord.Embed(
-        title="🔓 LUNR Deobfuscator",
-        description="Deobfuscate Lua/Roblox scripts - Pure Python",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name=".l", value="Deobfuscate from code block or .lua file", inline=False)
-    embed.add_field(name=".get", value="Fetch and deobfuscate from URL\n`.get https://pastebin.com/raw/xxx`", inline=False)
-    await ctx.send(embed=embed)
 
 # ============================================
 # RUN
