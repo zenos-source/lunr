@@ -195,15 +195,6 @@ async def obfuscate(ctx):
     view = ObfuscatePanel(ctx.author.id)
     await ctx.send("Click the button to obfuscate your script", view=view)
 
-@bot.command(name='help')
-async def help_cmd(ctx):
-    """Show help"""
-    embed = discord.Embed(title="📖 FLASH Obfuscator Help", color=discord.Color.green())
-    embed.add_field(name="!panel", value="Open the full control panel", inline=False)
-    embed.add_field(name="!obfuscate", value="Quick obfuscate", inline=False)
-    embed.add_field(name="!help", value="Show this message", inline=False)
-    await ctx.send(embed=embed)
-
 # ============================================
 # RUN BOT
 # ============================================
