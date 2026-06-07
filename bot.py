@@ -8,14 +8,14 @@ import hashlib
 import base64
 import zlib
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # ============================================
-# ANTI-TAMPER OBFUSCATOR
+# OBFUSCATOR
 # ============================================
 
 class Obfuscator:
@@ -30,7 +30,7 @@ class Obfuscator:
         # Remove comments
         code = re.sub(r'--.*$', '', code, flags=re.MULTILINE)
         
-        # Step 1: Rename variables
+        # Rename variables
         keywords = {'if','then','else','end','function','local','return','for',
                     'while','do','nil','true','false','and','or','not','in'}
         
@@ -43,7 +43,7 @@ class Obfuscator:
         for old, new in var_map.items():
             code = re.sub(rf'\b{old}\b', new, code)
         
-        # Step 2: Encode strings
+        # Encode strings
         def encode(match):
             s = match.group(1)
             return '(' + '..'.join([f'string.char({ord(c)})' for c in s]) + ')'
@@ -51,11 +51,10 @@ class Obfuscator:
         code = re.sub(r'"([^"]*)"', encode, code)
         code = re.sub(r"'([^']*)'", encode, code)
         
-        # Step 3: Add anti-tamper
+        # Anti-tamper checksum
         checksum = hashlib.md5(code.encode()).hexdigest()
         
         anti_tamper = f'''
-        -- ANTI-TAMPER
         do
             local hash = "{checksum}"
             local original = [=[{code}]=]
@@ -70,13 +69,13 @@ class Obfuscator:
         end
         '''
         
-        # Step 4: Add garbage code
+        # Garbage code
         garbage = f'''
         do local x={random.randint(1,999)} for i=1,{random.randint(10,100)} do x=x+i end end
         do local _=function() return {random.randint(1,999)} end _() end
         '''
         
-        # Step 5: Final wrapper
+        # Final
         if level == "hard":
             compressed = base64.b64encode(zlib.compress((anti_tamper + garbage + code).encode())).decode()
             final = f'''
@@ -91,7 +90,7 @@ class Obfuscator:
             return anti_tamper + garbage + code
 
 # ============================================
-# BUTTONS
+# PANEL BUTTONS
 # ============================================
 
 class ObfuscatePanel(View):
@@ -104,21 +103,21 @@ class ObfuscatePanel(View):
         placeholder="Select protection level",
         options=[
             discord.SelectOption(label="Normal", value="normal", description="Basic protection"),
-            discord.SelectOption(label="Hard (Recommended)", value="hard", description="Full protection + compression"),
+            discord.SelectOption(label="Hard", value="hard", description="Full protection"),
         ]
     )
     async def select_level(self, interaction, select):
         if interaction.user.id != self.user_id:
-            return await interaction.response.send_message("Not your panel", ephemeral=True)
+            return
         self.level = select.values[0]
-        await interaction.response.send_message(f"✅ Level: {self.level}", ephemeral=True)
+        await interaction.response.send_message(f"Level: {self.level}", ephemeral=True)
     
-    @discord.ui.button(label="🔒 Obfuscate Script", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Obfuscate Script", style=discord.ButtonStyle.primary)
     async def obfuscate(self, interaction, button):
         if interaction.user.id != self.user_id:
             return
         
-        await interaction.response.send_message("📤 **Send your .lua file**", ephemeral=True)
+        await interaction.response.send_message("Send your .lua file:", ephemeral=True)
         
         def check(m):
             return m.author.id == self.user_id and m.channel == interaction.channel
@@ -132,10 +131,8 @@ class ObfuscatePanel(View):
             else:
                 code = msg.content
             
-            # Obfuscate
             result = Obfuscator.obfuscate(code, self.level)
             
-            # Send result
             if len(result) < 1900:
                 await interaction.followup.send(f"```lua\n{result}\n```", ephemeral=True)
             else:
@@ -144,7 +141,7 @@ class ObfuscatePanel(View):
                 await interaction.followup.send(file=discord.File("output.lua"), ephemeral=True)
                 
         except Exception as e:
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+            await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
 # ============================================
 # COMMANDS
@@ -152,26 +149,12 @@ class ObfuscatePanel(View):
 
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} is online!")
-    print("Commands: !panel, !obfuscate")
+    print(f"{bot.user} is online!")
 
 @bot.command()
 async def panel(ctx):
-    """Open obfuscator panel"""
-    embed = discord.Embed(
-        title="🔒 FLASH Obfuscator",
-        description="Protect your Lua scripts from being stolen",
-        color=discord.Color.blue()
-    )
-    embed.add_field("🔥 Features", "✓ Anti-tamper\n✓ String encoding\n✓ Variable renaming\n✓ Compression")
-    
+    embed = discord.Embed(title="FLASH Obfuscator", description="Protect your Lua scripts", color=discord.Color.blue())
     await ctx.send(embed=embed, view=ObfuscatePanel(ctx.author.id))
-
-@bot.command()
-async def obfuscate(ctx):
-    """Quick obfuscate"""
-    view = ObfuscatePanel(ctx.author.id)
-    await ctx.send("Click the button to obfuscate", view=view)
 
 # ============================================
 # RUN
