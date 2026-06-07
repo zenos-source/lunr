@@ -23,13 +23,11 @@ VALID_API_KEYS = {
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix='/', intents=intents)
-
-# Store logged in users
+bot = commands.Bot(command_prefix='!', intents=intents)  # Changed to ! instead of /
 logged_in_users = {}
 
 # ============================================
-# COMMAND SYNC FIX - IMPORTANT!
+# EVENTS
 # ============================================
 
 @bot.event
@@ -38,99 +36,91 @@ async def on_ready():
     print(f"📋 Panel: {PANEL_NAME}")
     print(f"📝 {DESCRIPTION}")
     print("=" * 50)
-    
-    # Sync commands to Discord
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} command(s)")
-    except Exception as e:
-        print(f"❌ Failed to sync commands: {e}")
 
 # ============================================
-# SLASH COMMANDS (use / not prefix)
+# COMMANDS (use ! not /)
 # ============================================
 
-@bot.tree.command(name='panel', description='Show panel information')
-async def panel(interaction: discord.Interaction):
+@bot.command(name='panel')
+async def panel(ctx):
     embed = discord.Embed(
         title=f"📋 {PANEL_NAME}",
         description=DESCRIPTION,
         color=discord.Color.blue()
     )
-    await interaction.response.send_message(embed=embed)
+    await ctx.send(embed=embed)
 
-@bot.tree.command(name='login', description='Login with your API key')
-async def login(interaction: discord.Interaction, api_key: str):
+@bot.command(name='login')
+async def login(ctx, api_key: str = None):
+    if not api_key:
+        await ctx.send("❌ Usage: `!login YOUR_API_KEY`")
+        return
+    
     if api_key in VALID_API_KEYS:
-        logged_in_users[interaction.user.id] = api_key
+        logged_in_users[ctx.author.id] = api_key
         user_data = VALID_API_KEYS[api_key]
-        await interaction.response.send_message(f"✅ Logged in as **{user_data['user']}** (Role: {user_data['role']})")
+        await ctx.send(f"✅ Logged in as **{user_data['user']}** (Role: {user_data['role']})")
     else:
-        await interaction.response.send_message("❌ Invalid API key!")
+        await ctx.send("❌ Invalid API key!")
 
-@bot.tree.command(name='logout', description='Logout from the panel')
-async def logout(interaction: discord.Interaction):
-    if interaction.user.id in logged_in_users:
-        del logged_in_users[interaction.user.id]
-        await interaction.response.send_message("🚪 Logged out successfully!")
+@bot.command(name='logout')
+async def logout(ctx):
+    if ctx.author.id in logged_in_users:
+        del logged_in_users[ctx.author.id]
+        await ctx.send("🚪 Logged out successfully!")
     else:
-        await interaction.response.send_message("❌ Not logged in.")
+        await ctx.send("❌ Not logged in.")
 
-def is_logged_in(user_id):
-    return user_id in logged_in_users
-
-@bot.tree.command(name='redeem', description='Redeem a key')
-async def redeem(interaction: discord.Interaction, key: str):
-    if not is_logged_in(interaction.user.id):
-        await interaction.response.send_message("❌ Login first: `/login`")
+@bot.command(name='redeem')
+async def redeem(ctx, key: str = None):
+    if ctx.author.id not in logged_in_users:
+        await ctx.send("❌ Login first: `!login API_KEY`")
         return
-    await interaction.response.send_message(f"🎫 Key `{key}` redeemed successfully!")
-
-@bot.tree.command(name='script', description='Get the loader script')
-async def script(interaction: discord.Interaction):
-    if not is_logged_in(interaction.user.id):
-        await interaction.response.send_message("❌ Login first: `/login`")
+    if not key:
+        await ctx.send("❌ Usage: `!redeem YOUR_KEY`")
         return
-    await interaction.response.send_message("```lua\nloadstring(game:HttpGet('https://pastebin.com/raw/YOUR_SCRIPT'))()```")
+    await ctx.send(f"🎫 Key `{key}` redeemed successfully!")
 
-@bot.tree.command(name='role', description='Get your assigned role')
-async def role(interaction: discord.Interaction):
-    if not is_logged_in(interaction.user.id):
-        await interaction.response.send_message("❌ Login first: `/login`")
+@bot.command(name='script')
+async def script(ctx):
+    if ctx.author.id not in logged_in_users:
+        await ctx.send("❌ Login first: `!login API_KEY`")
         return
-    api_key = logged_in_users[interaction.user.id]
+    await ctx.send("```lua\nloadstring(game:HttpGet('https://pastebin.com/raw/YOUR_SCRIPT'))()```")
+
+@bot.command(name='role')
+async def role(ctx):
+    if ctx.author.id not in logged_in_users:
+        await ctx.send("❌ Login first: `!login API_KEY`")
+        return
+    api_key = logged_in_users[ctx.author.id]
     user_role = VALID_API_KEYS.get(api_key, {}).get('role', 'user')
-    await interaction.response.send_message(f"👑 Your role: **{user_role}**")
+    await ctx.send(f"👑 Your role: **{user_role}**")
 
-@bot.tree.command(name='resethwid', description='Reset your HWID')
-async def reset_hwid(interaction: discord.Interaction):
-    if not is_logged_in(interaction.user.id):
-        await interaction.response.send_message("❌ Login first: `/login`")
+@bot.command(name='resethwid')
+async def reset_hwid(ctx):
+    if ctx.author.id not in logged_in_users:
+        await ctx.send("❌ Login first: `!login API_KEY`")
         return
-    await interaction.response.send_message("🔄 HWID reset successfully!")
+    await ctx.send("🔄 HWID reset successfully!")
 
-@bot.tree.command(name='stats', description='Get your statistics')
-async def stats(interaction: discord.Interaction):
-    if not is_logged_in(interaction.user.id):
-        await interaction.response.send_message("❌ Login first: `/login`")
+@bot.command(name='stats')
+async def stats(ctx):
+    if ctx.author.id not in logged_in_users:
+        await ctx.send("❌ Login first: `!login API_KEY`")
         return
     embed = discord.Embed(title="📊 Your Stats", color=discord.Color.gold())
     embed.add_field(name="HWID", value="✅ Active", inline=True)
     embed.add_field(name="Keys Redeemed", value="3", inline=True)
-    await interaction.response.send_message(embed=embed)
+    await ctx.send(embed=embed)
 
 # ============================================
 # RUN BOT
 # ============================================
 
 if __name__ == "__main__":
-    if not BOT_TOKEN:
+    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         print("❌ ERROR: BOT_TOKEN not set!")
         exit(1)
     
-    print(f"""
-    ╔════════════════════════════╗
-    ║     {PANEL_NAME[:20]}    
-    ╚════════════════════════════╝
-    """)
     bot.run(BOT_TOKEN)
