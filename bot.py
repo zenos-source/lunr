@@ -19,7 +19,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='.', intents=intents)
 
 # ============================================
-# SIMPLE BUT EFFECTIVE DEOBFUSCATOR
+# DEOBFUSCATOR
 # ============================================
 
 def clean_url(url):
@@ -29,7 +29,7 @@ def clean_url(url):
     return url
 
 def deobfuscate(script):
-    """Pure Python deobfuscation - works on Railway"""
+    """Pure Python deobfuscation"""
     
     result = script
     
@@ -68,7 +68,6 @@ def deobfuscate(script):
     cleaned = []
     skip = False
     for line in lines:
-        # Skip always-true if statements
         if 'if (true or false)' in line or 'if (1 + 1 == 2)' in line:
             if 'then' in line:
                 skip = True
@@ -78,7 +77,6 @@ def deobfuscate(script):
             continue
         if skip:
             continue
-        # Skip empty table assignments
         if re.match(r'local _[a-zA-Z0-9]+ = {}\s*$', line):
             continue
         cleaned.append(line)
@@ -90,6 +88,7 @@ def deobfuscate(script):
     return result.strip()
 
 async def fetch_script(url):
+    """Fetch script from URL"""
     url = clean_url(url)
     timeout = aiohttp.ClientTimeout(total=30)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -109,30 +108,44 @@ async def on_ready():
 
 @bot.command(name='l')
 async def l_command(ctx, *, code: str = None):
-    """Deobfuscate Lua code"""
+    """Deobfuscate: .l <url> OR .l ```code``` OR attach .lua/.txt file"""
     
     script = None
     
-    # Check attachments
-    if ctx.message.attachments:
+    # Check if input is a URL
+    if code and (code.startswith('http://') or code.startswith('https://')):
+        msg = await ctx.send("📥 Fetching from URL...")
+        try:
+            script = await fetch_script(code)
+            await msg.edit(content="🔓 Deobfuscating...")
+        except Exception as e:
+            await msg.edit(content=f"❌ Failed to fetch: {str(e)[:100]}")
+            return
+    
+    # Check attachments (.lua or .txt)
+    if not script and ctx.message.attachments:
         attachment = ctx.message.attachments[0]
-        if attachment.filename.endswith('.lua'):
+        if attachment.filename.endswith(('.lua', '.txt')):
             data = await attachment.read()
             script = data.decode('utf-8')
     
     # Check code block
     if not script and code:
-        match = re.search(r'```(?:lua)?\n?([\s\S]*?)```', code)
-        if match:
-            script = match.group(1)
-        elif code.strip():
-            script = code.strip()
+        # If it's not a URL, treat as code block
+        if not code.startswith('http://') and not code.startswith('https://'):
+            match = re.search(r'```(?:lua)?\n?([\s\S]*?)```', code)
+            if match:
+                script = match.group(1)
+            elif code.strip():
+                script = code.strip()
     
     if not script:
-        await ctx.send("❌ Usage: `.l ```lua code``` or attach .lua file")
+        await ctx.send("❌ Usage:\n`.l https://example.com/script.lua`\n`.l ```lua code``` `\n`.l` + attach .lua/.txt file")
         return
     
-    msg = await ctx.send("🔓 Deobfuscating...")
+    # If we already sent a message for URL fetch, reuse it, otherwise send new
+    if 'msg' not in locals():
+        msg = await ctx.send("🔓 Deobfuscating...")
     
     try:
         result = await asyncio.to_thread(deobfuscate, script)
@@ -155,7 +168,7 @@ async def l_command(ctx, *, code: str = None):
 
 @bot.command(name='get')
 async def get_command(ctx, *, url: str = None):
-    """Fetch and deobfuscate from URL"""
+    """Fetch script from URL (no deobfuscation): .get https://example.com/script.lua"""
     
     if not url:
         await ctx.send("❌ Usage: `.get https://pastebin.com/raw/xxx`")
@@ -170,19 +183,13 @@ async def get_command(ctx, *, url: str = None):
             await msg.edit(content="❌ Failed to fetch script")
             return
         
-        await msg.edit(content="🔓 Deobfuscating...")
-        result = await asyncio.to_thread(deobfuscate, script)
-        
-        if not result or len(result) < 10:
-            await msg.edit(content="❌ No output")
-            return
-        
-        if len(result) < 1900:
-            await msg.edit(content=f"```lua\n{result}\n```")
+        # Just return the fetched script, no deobfuscation
+        if len(script) < 1900:
+            await msg.edit(content=f"```lua\n{script}\n```")
         else:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.lua', delete=False) as f:
-                f.write(result)
-                await ctx.send(file=discord.File(f.name, filename="deobfuscated.lua"))
+                f.write(script)
+                await ctx.send(file=discord.File(f.name, filename="fetched.lua"))
                 os.unlink(f.name)
             await msg.delete()
             
