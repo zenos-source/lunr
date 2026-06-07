@@ -3,7 +3,6 @@ import discord
 from discord.ext import commands
 import re
 import base64
-import zlib
 import tempfile
 import aiohttp
 
@@ -78,7 +77,7 @@ async def fetch_script(url):
 async def on_ready():
     print(f'✅ Logged in as {bot.user}')
     print('LUNR Deobfuscator Ready')
-    print('Commands: .l, .get, .help')
+    print('Commands: .l , .get')
 
 @bot.command(name='l')
 async def l_command(ctx, *, code: str = None):
@@ -151,19 +150,6 @@ async def get_command(ctx, url: str = None):
             
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
-
-@bot.command(name='help')
-async def help_command(ctx):
-    """Show all commands"""
-    embed = discord.Embed(
-        title="🔓 LUNR Deobfuscator",
-        description="Deobfuscate Lua/Roblox scripts",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name=".l", value="Deobfuscate from code block or file\n`.l ```lua code``` `", inline=False)
-    embed.add_field(name=".get", value="Fetch and deobfuscate from URL\n`.get https://pastebin.com/raw/xxx`", inline=False)
-    embed.add_field(name=".help", value="Show this menu", inline=False)
-    await ctx.send(embed=embed)
 
 # ============================================
 # RUN
