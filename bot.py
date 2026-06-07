@@ -69,37 +69,29 @@ class MoonveilObfuscator:
         if len(s) == 0:
             return '""'
         
-        # Multiple encoding methods
         method = random.randint(1, 4)
         
         if method == 1:
-            # Character array
             chars = [f"string.char({ord(c)})" for c in s]
             return "(" + "..".join(chars) + ")"
         
         elif method == 2:
-            # Base64 + hex
             encoded = base64.b64encode(s.encode()).decode()
             return f"(function() local t='{encoded}' local d='' for i=1,#t do d=d..string.char(string.byte(t,i)-{random.randint(1,5)}) end return d end)()"
         
         elif method == 3:
-            # XOR cipher
             key = random.randint(1, 255)
             encrypted = ''.join(chr(ord(c) ^ key) for c in s)
             return f"(function() local k={key} local e='{encrypted}' local r='' for i=1,#e do r=r..string.char(string.byte(e,i)~=k) end return r end)()"
         
         else:
-            # Reverse + decode
             reversed_s = s[::-1]
             return f"(string.reverse({MoonveilObfuscator.string_mangle(reversed_s)}))"
     
     @staticmethod
     def obfuscate(code, user_id):
-        """Full obfuscation - only works for whitelisted user"""
-        
         import re
         
-        # Generate unique watermark for this user
         watermark = hashlib.md5(f"{user_id}{random.randint(1,999999)}".encode()).hexdigest()[:16]
         
         # Remove comments
@@ -137,9 +129,7 @@ class MoonveilObfuscator:
             operations = [
                 f"({num})",
                 f"(0x{hex(num)[2:]})",
-                f"(#{string.ascii_letters[:num%52]})" if num < 52 else f"({num})",
-                f"(string.byte('{random.choice(string.ascii_letters)}')-{random.randint(40, 120)})",
-                f"({random.randint(1, num-1)}+{num-random.randint(1, num-1)})" if num > 2 else f"({num})"
+                f"(string.byte('{random.choice(string.ascii_letters)}')-{random.randint(40, 120)})" if num > 10 else f"({num})",
             ]
             return random.choice(operations)
         
@@ -148,29 +138,25 @@ class MoonveilObfuscator:
         # Compress
         compressed = base64.b64encode(zlib.compress(code.encode(), 9)).decode()
         
+        shift = random.randint(1, 15)
+        
         # Whitelist check wrapper
         final = f"""
-        -- Moonveil Protected Script
+        -- Protected Script
         -- User: {user_id}
-        -- Hash: {watermark}
         
         (function()
-            local _allowed = {str(user_id)}
-            local _uid = tostring(owner and owner.ConsoleId or game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer.UserId or 0)
+            local _uid = game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer.UserId or 0
             
-            if tostring(_uid) ~= tostring(_allowed) then
-                local _msg = "⚠️ This script is locked to another user\\nContact @owner to purchase"
-                if game:GetService("StarterGui"):FindFirstChild("SetCore") then
-                    game:GetService("StarterGui"):SetCore("SendNotification", {{Title="Access Denied", Text=_msg, Duration=5}})
-                end
-                error("Unauthorized user: " .. _uid)
+            if tostring(_uid) ~= "{user_id}" then
+                game:GetService("StarterGui"):SetCore("SendNotification", {{Title="Access Denied", Text="This script is locked to another user", Duration=5}})
                 return
             end
             
             local function _d(s)
                 local _r = ""
                 for _i=1,#s do
-                    _r = _r .. string.char(string.byte(s,_i) - {random.randint(1, 15)})
+                    _r = _r .. string.char(string.byte(s,_i) - {shift})
                 end
                 return _r
             end
@@ -208,7 +194,7 @@ class WhitelistPanel(View):
         
         if not is_whitelisted(self.user_id):
             return await interaction.response.send_message(
-                "❌ **Access Denied**\nYou are not whitelisted to use this obfuscator.\nContact <@owner> to purchase access.",
+                "❌ **Access Denied**\nYou are not whitelisted to use this obfuscator.\nContact owner to purchase access.",
                 ephemeral=True
             )
         
@@ -232,10 +218,8 @@ class WhitelistPanel(View):
             if not code or len(code) < 10:
                 return await interaction.followup.send("❌ Invalid code!", ephemeral=True)
             
-            # Obfuscate
             result = MoonveilObfuscator.obfuscate(code, self.user_id)
             
-            # Send result
             if len(result) < 1900:
                 await interaction.followup.send(f"```lua\n{result}\n```", ephemeral=True)
             else:
@@ -262,7 +246,7 @@ class WhitelistPanel(View):
             )
         else:
             await interaction.response.send_message(
-                "❌ **Not whitelisted**\nContact <@owner> to purchase access",
+                "❌ **Not whitelisted**\nContact owner to purchase access",
                 ephemeral=True
             )
 
@@ -305,9 +289,13 @@ async def list_users(ctx):
     )
     
     for uid, data in whitelist.items():
-        user = await bot.fetch_user(int(uid))
+        try:
+            user = await bot.fetch_user(int(uid))
+            name = user.name
+        except:
+            name = "Unknown"
         embed.add_field(
-            name=user.name if user else uid,
+            name=name,
             value=f"ID: `{uid}`\nPlan: {data.get('plan', 'premium')}",
             inline=False
         )
@@ -326,8 +314,8 @@ async def panel(ctx):
         description="Protect your Lua scripts with military-grade encryption",
         color=discord.Color.purple()
     )
-    embed.add_field("Features", "✓ User-locked scripts\n✓ Anti-tamper\n✓ String encoding\n✓ Variable renaming\n✓ Compression")
-    embed.add_field("Price", "DM <@owner> for whitelist access", inline=False)
+    embed.add_field(name="Features", value="✓ User-locked scripts\n✓ Anti-tamper\n✓ String encoding\n✓ Variable renaming\n✓ Compression", inline=False)
+    embed.add_field(name="Price", value="DM owner for whitelist access", inline=False)
     
     view = WhitelistPanel(ctx.author.id)
     await ctx.send(embed=embed, view=view)
@@ -339,7 +327,7 @@ async def check_whitelist(ctx):
         plan = whitelist[str(ctx.author.id)].get("plan", "premium")
         await ctx.send(f"✅ You are whitelisted! Plan: `{plan}`")
     else:
-        await ctx.send("❌ You are not whitelisted. Contact <@owner> to purchase access.")
+        await ctx.send("❌ You are not whitelisted. Contact owner to purchase access.")
 
 # ============================================
 # RUN BOT
