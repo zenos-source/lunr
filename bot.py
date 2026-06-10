@@ -25,9 +25,7 @@ bot = commands.Bot(command_prefix='.', intents=intents)
 
 server_configs = {}
 warns = {}
-user_levels = {}
-user_balances = {}
-shop_items = {}
+dm_cooldown = {}
 
 def load_config(guild_id):
     guild_id = str(guild_id)
@@ -65,14 +63,12 @@ def save_config(guild_id):
 @bot.event
 async def on_ready():
     print(f'✅ {bot.user} is online!')
-    # Sync commands to all servers
     try:
         synced = await bot.tree.sync()
-        print(f'✅ Synced {len(synced)} slash commands globally')
+        print(f'✅ Synced {len(synced)} slash commands')
     except Exception as e:
         print(f'❌ Failed to sync: {e}')
     
-    # Load all configs
     for file in os.listdir():
         if file.startswith("config_") and file.endswith(".json"):
             guild_id = file.replace("config_", "").replace(".json", "")
@@ -83,7 +79,6 @@ async def on_ready():
 @bot.tree.command(name='refresh', description='Refresh slash commands (Admin only)')
 @app_commands.default_permissions(administrator=True)
 async def refresh_commands(interaction: discord.Interaction):
-    """Force refresh all slash commands"""
     await interaction.response.defer(ephemeral=True)
     try:
         bot.tree.clear_commands(guild=interaction.guild)
@@ -99,48 +94,23 @@ async def refresh_commands(interaction: discord.Interaction):
 @bot.tree.command(name='setup', description='Setup the bot for your server')
 @app_commands.default_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
-    config = load_config(interaction.guild_id)
-    
     embed = discord.Embed(
         title="🔧 Bot Setup Wizard",
-        description="Click buttons below to configure the bot",
+        description="Use `/settings` to configure the bot",
         color=discord.Color.blue()
     )
-    
-    view = SetupView(interaction.guild_id)
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-class SetupView(discord.ui.View):
-    def __init__(self, guild_id):
-        super().__init__(timeout=120)
-        self.guild_id = guild_id
-    
-    @discord.ui.button(label="👋 Welcome", style=discord.ButtonStyle.primary, emoji="👋")
-    async def welcome_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Select welcome channel:", ephemeral=True)
-        # Channel selection logic here
-    
-    @discord.ui.button(label="🛡️ Auto Mod", style=discord.ButtonStyle.primary, emoji="🛡️")
-    async def automod_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Auto mod settings", ephemeral=True)
-    
-    @discord.ui.button(label="✅ Finish", style=discord.ButtonStyle.success, emoji="✅")
-    async def finish_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("✅ Setup complete! Use `/panel` to manage your server.", ephemeral=True)
-
-# ============================================
-# PANEL COMMAND
-# ============================================
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name='panel', description='Open control panel')
 async def panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎮 Control Panel",
-        description="Manage your server",
+        description="Server management commands",
         color=discord.Color.blue()
     )
-    embed.add_field(name="📊 Dashboard", value="[Web Dashboard](https://your-site.com)", inline=False)
-    embed.add_field(name="🔗 Commands", value="Use `/help` to see all commands", inline=False)
+    embed.add_field(name="📊 Moderation", value="/warn, /kick, /ban, /timeout, /purge", inline=False)
+    embed.add_field(name="📊 Utility", value="/userinfo, /serverinfo, /avatar, /poll", inline=False)
+    embed.add_field(name="📊 DM Commands", value="/dm, /dmall, /dmrole", inline=False)
     await interaction.response.send_message(embed=embed)
 
 # ============================================
@@ -299,6 +269,123 @@ async def remind(interaction: discord.Interaction, minutes: int, message: str):
     await interaction.user.send(f'⏰ Reminder: {message}')
 
 # ============================================
+# DM COMMANDS
+# ============================================
+
+@bot.tree.command(name='dm', description='Direct message a user (Staff only)')
+@app_commands.describe(
+    user='The user to message',
+    message='The message to send'
+)
+@app_commands.default_permissions(administrator=True)
+async def dm_user(interaction: discord.Interaction, user: discord.User, message: str):
+    
+    if interaction.user.id in dm_cooldown:
+        time_diff = (datetime.now() - dm_cooldown[interaction.user.id]).total_seconds()
+        if time_diff < 5:
+            await interaction.response.send_message(f'⏰ Please wait {5 - int(time_diff)} seconds', ephemeral=True)
+            return
+    
+    dm_cooldown[interaction.user.id] = datetime.now()
+    
+    embed = discord.Embed(
+        title=f"📬 Message from {interaction.guild.name} Staff",
+        description=message,
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Sent by", value=interaction.user.mention, inline=True)
+    embed.add_field(name="Server", value=interaction.guild.name, inline=True)
+    
+    try:
+        await user.send(embed=embed)
+        
+        config = load_config(interaction.guild_id)
+        if config.get('mod_log_channel'):
+            log_channel = interaction.guild.get_channel(config['mod_log_channel'])
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📨 DM Sent",
+                    description=f"**To:** {user.mention}\n**From:** {interaction.user.mention}\n**Message:** {message}",
+                    color=discord.Color.green(),
+                    timestamp=datetime.now()
+                )
+                await log_channel.send(embed=log_embed)
+        
+        await interaction.response.send_message(f'✅ Message sent to {user.mention}', ephemeral=True)
+        
+    except discord.Forbidden:
+        await interaction.response.send_message(f'❌ Cannot DM {user.mention} - DMs disabled', ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f'❌ Error: {str(e)[:100]}', ephemeral=True)
+
+@bot.tree.command(name='dmall', description='Send a message to all members (Admin only)')
+@app_commands.describe(
+    message='The message to send to all members',
+    role='Only send to members with this role (optional)'
+)
+@app_commands.default_permissions(administrator=True)
+async def dm_all(interaction: discord.Interaction, message: str, role: discord.Role = None):
+    
+    await interaction.response.send_message(f'📬 Sending DM to all members...', ephemeral=True)
+    
+    members = interaction.guild.members
+    if role:
+        members = [m for m in members if role in m.roles]
+    
+    success_count = 0
+    fail_count = 0
+    
+    embed = discord.Embed(
+        title=f"📢 Announcement from {interaction.guild.name}",
+        description=message,
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text=f"Sent by {interaction.user.name}")
+    
+    for member in members:
+        if member.bot:
+            continue
+        try:
+            await member.send(embed=embed)
+            success_count += 1
+            await asyncio.sleep(0.5)
+        except:
+            fail_count += 1
+    
+    await interaction.followup.send(f'✅ DMs sent: {success_count} successful, {fail_count} failed', ephemeral=True)
+
+@bot.tree.command(name='dmrole', description='DM all members with a specific role')
+@app_commands.describe(
+    role='The role to DM',
+    message='The message to send'
+)
+@app_commands.default_permissions(administrator=True)
+async def dm_role(interaction: discord.Interaction, role: discord.Role, message: str):
+    
+    await interaction.response.send_message(f'📬 Sending DM to all {role.name} members...', ephemeral=True)
+    
+    success_count = 0
+    fail_count = 0
+    
+    embed = discord.Embed(
+        title=f"📬 Message for {role.name} role",
+        description=message,
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text=f"Sent by {interaction.user.name}")
+    
+    for member in interaction.guild.members:
+        if role in member.roles and not member.bot:
+            try:
+                await member.send(embed=embed)
+                success_count += 1
+                await asyncio.sleep(0.3)
+            except:
+                fail_count += 1
+    
+    await interaction.followup.send(f'✅ Sent to {success_count} members ({fail_count} failed)', ephemeral=True)
+
+# ============================================
 # LEVELING COMMANDS
 # ============================================
 
@@ -306,7 +393,7 @@ async def remind(interaction: discord.Interaction, minutes: int, message: str):
 @app_commands.describe(member='Member to check')
 async def rank(interaction: discord.Interaction, member: discord.Member = None):
     member = member or interaction.user
-    embed = discord.Embed(title=f'📊 {member.name}\'s Rank', description='Leveling coming soon!', color=discord.Color.green())
+    embed = discord.Embed(title=f'📊 {member.name}\'s Rank', description='Level: 1 | XP: 0/100', color=discord.Color.green())
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name='daily', description='Claim daily reward')
@@ -342,7 +429,7 @@ async def filter_cmd(interaction: discord.Interaction, action: str, word: str = 
         words = '\n'.join(config['filtered_words']) if config['filtered_words'] else 'No filtered words'
         await interaction.response.send_message(f'**Filtered Words:**\n{words}')
     else:
-        await interaction.response.send_message('❌ Invalid usage. Use `/filter add word` or `/filter remove word`')
+        await interaction.response.send_message('❌ Use `/filter add word` or `/filter remove word`')
 
 # ============================================
 # EVENT HANDLERS
@@ -353,13 +440,13 @@ async def on_message(message):
     if message.author.bot:
         return
     
-    # Auto-mod filter
-    config = load_config(message.guild.id)
-    for word in config['filtered_words']:
-        if word.lower() in message.content.lower():
-            await message.delete()
-            await message.channel.send(f'❌ {message.author.mention}, that word is not allowed!', delete_after=3)
-            break
+    if message.guild:
+        config = load_config(message.guild.id)
+        for word in config['filtered_words']:
+            if word.lower() in message.content.lower():
+                await message.delete()
+                await message.channel.send(f'❌ {message.author.mention}, that word is not allowed!', delete_after=3)
+                break
     
     await bot.process_commands(message)
 
@@ -367,18 +454,22 @@ async def on_message(message):
 async def on_member_join(member):
     config = load_config(member.guild.id)
     
-    # Auto roles
     for role_id in config['auto_roles']:
         role = member.guild.get_role(role_id)
         if role:
             await member.add_roles(role)
     
-    # Welcome message
     if config['welcome_channel']:
         channel = member.guild.get_channel(config['welcome_channel'])
         if channel:
             msg = config['welcome_message'].replace('{member}', member.mention).replace('{server}', member.guild.name)
             await channel.send(msg)
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    print(f'Error: {error}')
 
 # ============================================
 # RUN
