@@ -35,19 +35,12 @@ def load_config(guild_id):
                 server_configs[guild_id] = json.load(f)
         except:
             server_configs[guild_id] = {
-                "welcome_channel": None,
-                "welcome_message": "Welcome {member} to {server}! 🎉",
-                "goodbye_channel": None,
-                "goodbye_message": "Goodbye {member}! 👋",
                 "mod_log_channel": None,
-                "member_log_channel": None,
-                "auto_roles": [],
                 "filtered_words": [],
                 "warn_limit": 3,
-                "leveling_enabled": True,
-                "economy_enabled": True,
-                "ticket_category": None,
-                "ticket_staff_role": None,
+                "auto_roles": [],
+                "welcome_channel": None,
+                "welcome_message": "Welcome {member} to {server}! 🎉",
             }
             save_config(guild_id)
     return server_configs[guild_id]
@@ -57,7 +50,7 @@ def save_config(guild_id):
         json.dump(server_configs[str(guild_id)], f, indent=4)
 
 # ============================================
-# COMMAND SYNC / REFRESH
+# COMMAND SYNC
 # ============================================
 
 @bot.event
@@ -68,50 +61,16 @@ async def on_ready():
         print(f'✅ Synced {len(synced)} slash commands')
     except Exception as e:
         print(f'❌ Failed to sync: {e}')
-    
-    for file in os.listdir():
-        if file.startswith("config_") and file.endswith(".json"):
-            guild_id = file.replace("config_", "").replace(".json", "")
-            with open(file, "r") as f:
-                server_configs[guild_id] = json.load(f)
-    print(f'📋 Loaded {len(server_configs)} server configs')
 
 @bot.tree.command(name='refresh', description='Refresh slash commands (Admin only)')
 @app_commands.default_permissions(administrator=True)
 async def refresh_commands(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     try:
-        bot.tree.clear_commands(guild=interaction.guild)
         synced = await bot.tree.sync()
         await interaction.followup.send(f'✅ Refreshed {len(synced)} commands!', ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f'❌ Error: {e}', ephemeral=True)
-
-# ============================================
-# SETUP COMMAND
-# ============================================
-
-@bot.tree.command(name='setup', description='Setup the bot for your server')
-@app_commands.default_permissions(administrator=True)
-async def setup(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🔧 Bot Setup Wizard",
-        description="Use `/settings` to configure the bot",
-        color=discord.Color.blue()
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-@bot.tree.command(name='panel', description='Open control panel')
-async def panel(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎮 Control Panel",
-        description="Server management commands",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="📊 Moderation", value="/warn, /kick, /ban, /timeout, /purge", inline=False)
-    embed.add_field(name="📊 Utility", value="/userinfo, /serverinfo, /avatar, /poll", inline=False)
-    embed.add_field(name="📊 DM Commands", value="/dm, /dmall, /dmrole", inline=False)
-    await interaction.response.send_message(embed=embed)
 
 # ============================================
 # MODERATION COMMANDS
@@ -215,6 +174,42 @@ async def unlock(interaction: discord.Interaction, channel: discord.TextChannel 
     await interaction.response.send_message(f'🔓 Unlocked {channel.mention}')
 
 # ============================================
+# DM COMMANDS (Only /dm)
+# ============================================
+
+@bot.tree.command(name='dm', description='Direct message a user (Admin only)')
+@app_commands.describe(
+    user='The user to message',
+    message='The message to send'
+)
+@app_commands.default_permissions(administrator=True)
+async def dm_user(interaction: discord.Interaction, user: discord.User, message: str):
+    
+    if interaction.user.id in dm_cooldown:
+        time_diff = (datetime.now() - dm_cooldown[interaction.user.id]).total_seconds()
+        if time_diff < 5:
+            await interaction.response.send_message(f'⏰ Please wait {5 - int(time_diff)} seconds', ephemeral=True)
+            return
+    
+    dm_cooldown[interaction.user.id] = datetime.now()
+    
+    embed = discord.Embed(
+        title=f"📬 Message from {interaction.guild.name} Staff",
+        description=message,
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Sent by", value=interaction.user.mention, inline=True)
+    embed.add_field(name="Server", value=interaction.guild.name, inline=True)
+    
+    try:
+        await user.send(embed=embed)
+        await interaction.response.send_message(f'✅ Message sent to {user.mention}', ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message(f'❌ Cannot DM {user.mention} - they have DMs disabled', ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f'❌ Error: {str(e)[:100]}', ephemeral=True)
+
+# ============================================
 # UTILITY COMMANDS
 # ============================================
 
@@ -269,139 +264,6 @@ async def remind(interaction: discord.Interaction, minutes: int, message: str):
     await interaction.user.send(f'⏰ Reminder: {message}')
 
 # ============================================
-# DM COMMANDS
-# ============================================
-
-@bot.tree.command(name='dm', description='Direct message a user (Staff only)')
-@app_commands.describe(
-    user='The user to message',
-    message='The message to send'
-)
-@app_commands.default_permissions(administrator=True)
-async def dm_user(interaction: discord.Interaction, user: discord.User, message: str):
-    
-    if interaction.user.id in dm_cooldown:
-        time_diff = (datetime.now() - dm_cooldown[interaction.user.id]).total_seconds()
-        if time_diff < 5:
-            await interaction.response.send_message(f'⏰ Please wait {5 - int(time_diff)} seconds', ephemeral=True)
-            return
-    
-    dm_cooldown[interaction.user.id] = datetime.now()
-    
-    embed = discord.Embed(
-        title=f"📬 Message from {interaction.guild.name} Staff",
-        description=message,
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="Sent by", value=interaction.user.mention, inline=True)
-    embed.add_field(name="Server", value=interaction.guild.name, inline=True)
-    
-    try:
-        await user.send(embed=embed)
-        
-        config = load_config(interaction.guild_id)
-        if config.get('mod_log_channel'):
-            log_channel = interaction.guild.get_channel(config['mod_log_channel'])
-            if log_channel:
-                log_embed = discord.Embed(
-                    title="📨 DM Sent",
-                    description=f"**To:** {user.mention}\n**From:** {interaction.user.mention}\n**Message:** {message}",
-                    color=discord.Color.green(),
-                    timestamp=datetime.now()
-                )
-                await log_channel.send(embed=log_embed)
-        
-        await interaction.response.send_message(f'✅ Message sent to {user.mention}', ephemeral=True)
-        
-    except discord.Forbidden:
-        await interaction.response.send_message(f'❌ Cannot DM {user.mention} - DMs disabled', ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f'❌ Error: {str(e)[:100]}', ephemeral=True)
-
-@bot.tree.command(name='dmall', description='Send a message to all members (Admin only)')
-@app_commands.describe(
-    message='The message to send to all members',
-    role='Only send to members with this role (optional)'
-)
-@app_commands.default_permissions(administrator=True)
-async def dm_all(interaction: discord.Interaction, message: str, role: discord.Role = None):
-    
-    await interaction.response.send_message(f'📬 Sending DM to all members...', ephemeral=True)
-    
-    members = interaction.guild.members
-    if role:
-        members = [m for m in members if role in m.roles]
-    
-    success_count = 0
-    fail_count = 0
-    
-    embed = discord.Embed(
-        title=f"📢 Announcement from {interaction.guild.name}",
-        description=message,
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text=f"Sent by {interaction.user.name}")
-    
-    for member in members:
-        if member.bot:
-            continue
-        try:
-            await member.send(embed=embed)
-            success_count += 1
-            await asyncio.sleep(0.5)
-        except:
-            fail_count += 1
-    
-    await interaction.followup.send(f'✅ DMs sent: {success_count} successful, {fail_count} failed', ephemeral=True)
-
-@bot.tree.command(name='dmrole', description='DM all members with a specific role')
-@app_commands.describe(
-    role='The role to DM',
-    message='The message to send'
-)
-@app_commands.default_permissions(administrator=True)
-async def dm_role(interaction: discord.Interaction, role: discord.Role, message: str):
-    
-    await interaction.response.send_message(f'📬 Sending DM to all {role.name} members...', ephemeral=True)
-    
-    success_count = 0
-    fail_count = 0
-    
-    embed = discord.Embed(
-        title=f"📬 Message for {role.name} role",
-        description=message,
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text=f"Sent by {interaction.user.name}")
-    
-    for member in interaction.guild.members:
-        if role in member.roles and not member.bot:
-            try:
-                await member.send(embed=embed)
-                success_count += 1
-                await asyncio.sleep(0.3)
-            except:
-                fail_count += 1
-    
-    await interaction.followup.send(f'✅ Sent to {success_count} members ({fail_count} failed)', ephemeral=True)
-
-# ============================================
-# LEVELING COMMANDS
-# ============================================
-
-@bot.tree.command(name='rank', description='Check your rank')
-@app_commands.describe(member='Member to check')
-async def rank(interaction: discord.Interaction, member: discord.Member = None):
-    member = member or interaction.user
-    embed = discord.Embed(title=f'📊 {member.name}\'s Rank', description='Level: 1 | XP: 0/100', color=discord.Color.green())
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name='daily', description='Claim daily reward')
-async def daily(interaction: discord.Interaction):
-    embed = discord.Embed(title='💰 Daily Reward', description='You claimed 100 coins!', color=discord.Color.gold())
-    await interaction.response.send_message(embed=embed)
-
-# ============================================
 # AUTO MOD - FILTER WORDS
 # ============================================
 
@@ -449,27 +311,6 @@ async def on_message(message):
                 break
     
     await bot.process_commands(message)
-
-@bot.event
-async def on_member_join(member):
-    config = load_config(member.guild.id)
-    
-    for role_id in config['auto_roles']:
-        role = member.guild.get_role(role_id)
-        if role:
-            await member.add_roles(role)
-    
-    if config['welcome_channel']:
-        channel = member.guild.get_channel(config['welcome_channel'])
-        if channel:
-            msg = config['welcome_message'].replace('{member}', member.mention).replace('{server}', member.guild.name)
-            await channel.send(msg)
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandNotFound):
-        return
-    print(f'Error: {error}')
 
 # ============================================
 # RUN
