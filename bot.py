@@ -73,6 +73,7 @@ async def on_message(message):
     if message.author.bot:
         return
     
+    # Handle DMs to the bot
     if isinstance(message.channel, discord.DMChannel):
         if message.author.id not in dm_messages:
             dm_messages[message.author.id] = []
@@ -103,6 +104,7 @@ async def on_message(message):
             await message.channel.send('pong')
         return
     
+    # Auto-mod filter for server messages
     if message.guild:
         config = load_config(message.guild.id)
         for word in config['filtered_words']:
@@ -141,15 +143,49 @@ async def refresh_commands(interaction: discord.Interaction):
         await interaction.followup.send(f'❌ Error: {e}', ephemeral=True)
 
 # ============================================
-# ANNOUNCEMENT COMMANDS - REAL MESSAGE STYLE
+# ANNOUNCEMENT COMMANDS WITH FILE SUPPORT
 # ============================================
 
 @bot.tree.command(name='annc', description='Send a message that looks like a real message')
 @app_commands.describe(message='The message to send')
 @app_commands.default_permissions(administrator=True)
 async def announce(interaction: discord.Interaction, message: str):
+    """Send a plain message that looks like a real user message"""
     await interaction.response.send_message("✅ Message sent!", ephemeral=True)
     await interaction.channel.send(message)
+
+@bot.tree.command(name='anncf', description='Send a message with a file attachment')
+@app_commands.describe(message='The message to send with attachment')
+@app_commands.default_permissions(administrator=True)
+async def announce_with_file(interaction: discord.Interaction, message: str):
+    """Upload a file to attach to your announcement"""
+    
+    await interaction.response.send_message(
+        "📎 **Now upload the file you want to attach**\n"
+        "You have 60 seconds to upload an image or file.\n"
+        "Type `cancel` to cancel.",
+        ephemeral=True
+    )
+    
+    def check(m):
+        return m.author == interaction.user and m.channel == interaction.channel
+    
+    try:
+        msg = await bot.wait_for('message', timeout=60, check=check)
+        
+        if msg.content and msg.content.lower() == 'cancel':
+            await interaction.followup.send("❌ Cancelled.", ephemeral=True)
+            return
+        
+        if msg.attachments:
+            attachment = msg.attachments[0]
+            await interaction.channel.send(content=message, file=await attachment.to_file())
+            await interaction.followup.send("✅ Announcement with file sent!", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ No file found. Please use `/annc` for text-only messages.", ephemeral=True)
+            
+    except asyncio.TimeoutError:
+        await interaction.followup.send("❌ Timed out. Please try again.", ephemeral=True)
 
 # ============================================
 # MODERATION COMMANDS
@@ -378,7 +414,7 @@ async def remind(interaction: discord.Interaction, minutes: int, message: str):
     await interaction.user.send(f'⏰ Reminder: {message}')
 
 # ============================================
-# AUTO MOD
+# AUTO MOD - FILTER WORDS
 # ============================================
 
 @bot.tree.command(name='filter', description='Manage filtered words')
