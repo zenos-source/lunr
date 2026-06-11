@@ -1,5 +1,7 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "NIXPACKS",
+    "buildCommand": "cd routes && npm install",
+    "startCommand": "cd routes && node index.js"
   }
 }
