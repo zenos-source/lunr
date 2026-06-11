@@ -1,5 +1,5 @@
 {
-  "name": "licensing-backend",
+  "name": "licensing-api",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
