@@ -143,47 +143,87 @@ async def refresh_commands(interaction: discord.Interaction):
         await interaction.followup.send(f'❌ Error: {e}', ephemeral=True)
 
 # ============================================
-# ANNOUNCEMENT COMMANDS WITH FILE SUPPORT
+# ANNOUNCEMENT COMMANDS - ADMIN ONLY
 # ============================================
 
-@bot.tree.command(name='annc', description='Send a message that looks like a real message')
+@bot.tree.command(name='annc', description='Send a message (Admin only)')
 @app_commands.describe(message='The message to send')
 @app_commands.default_permissions(administrator=True)
 async def announce(interaction: discord.Interaction, message: str):
-    """Send a plain message that looks like a real user message"""
+    """Send a plain text message - Admin only"""
     await interaction.response.send_message("✅ Message sent!", ephemeral=True)
     await interaction.channel.send(message)
 
-@bot.tree.command(name='anncf', description='Send a message with a file attachment')
-@app_commands.describe(message='The message to send with attachment')
+@bot.tree.command(name='anncimg', description='Send a message with an image (Admin only)')
+@app_commands.describe(
+    message='The message to send',
+    image_url='Paste the image URL from discord (right-click image → Copy Link)'
+)
+@app_commands.default_permissions(administrator=True)
+async def announce_with_image(interaction: discord.Interaction, message: str, image_url: str):
+    """Send a message with an image - Admin only"""
+    await interaction.response.send_message("✅ Announcement with image sent!", ephemeral=True)
+    await interaction.channel.send(f"{message}\n{image_url}")
+
+@bot.tree.command(name='anncembed', description='Send a fancy embed with image (Admin only)')
+@app_commands.describe(
+    title='Embed title',
+    description='Embed description',
+    image_url='Paste image URL here',
+    color='Color (red, green, blue, yellow, purple)'
+)
+@app_commands.default_permissions(administrator=True)
+async def announce_embed(interaction: discord.Interaction, title: str, description: str, image_url: str = None, color: str = "blue"):
+    """Send a nice embed with optional image - Admin only"""
+    
+    colors = {
+        "red": discord.Color.red(),
+        "green": discord.Color.green(),
+        "blue": discord.Color.blue(),
+        "yellow": discord.Color.yellow(),
+        "purple": discord.Color.purple(),
+    }
+    embed_color = colors.get(color.lower(), discord.Color.blue())
+    
+    embed = discord.Embed(
+        title=f"📢 {title}",
+        description=description,
+        color=embed_color,
+        timestamp=datetime.now()
+    )
+    if image_url:
+        embed.set_image(url=image_url)
+    embed.set_footer(text=f"Announced by {interaction.user.name}")
+    
+    await interaction.response.send_message("✅ Embed announcement sent!", ephemeral=True)
+    await interaction.channel.send(embed=embed)
+
+@bot.tree.command(name='anncf', description='Upload a file from your computer (Admin only)')
+@app_commands.describe(message='The message to send with your file')
 @app_commands.default_permissions(administrator=True)
 async def announce_with_file(interaction: discord.Interaction, message: str):
-    """Upload a file to attach to your announcement"""
+    """Upload a file from your computer - Admin only"""
     
     await interaction.response.send_message(
-        "📎 **Now upload the file you want to attach**\n"
-        "You have 60 seconds to upload an image or file.\n"
-        "Type `cancel` to cancel.",
+        "📎 **Now upload your file**\n"
+        "1. Type your message above\n"
+        "2. Click the + button\n"
+        "3. Upload your image/file\n"
+        "4. Send the message\n\n"
+        f"Message to send: `{message}`",
         ephemeral=True
     )
     
     def check(m):
-        return m.author == interaction.user and m.channel == interaction.channel
+        return m.author == interaction.user and m.channel == interaction.channel and m.attachments
     
     try:
         msg = await bot.wait_for('message', timeout=60, check=check)
+        attachment = msg.attachments[0]
         
-        if msg.content and msg.content.lower() == 'cancel':
-            await interaction.followup.send("❌ Cancelled.", ephemeral=True)
-            return
+        await interaction.channel.send(content=message, file=await attachment.to_file())
+        await interaction.followup.send("✅ Announcement with file sent!", ephemeral=True)
         
-        if msg.attachments:
-            attachment = msg.attachments[0]
-            await interaction.channel.send(content=message, file=await attachment.to_file())
-            await interaction.followup.send("✅ Announcement with file sent!", ephemeral=True)
-        else:
-            await interaction.followup.send("❌ No file found. Please use `/annc` for text-only messages.", ephemeral=True)
-            
     except asyncio.TimeoutError:
         await interaction.followup.send("❌ Timed out. Please try again.", ephemeral=True)
 
