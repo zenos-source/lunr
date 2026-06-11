@@ -13,7 +13,7 @@ if not BOT_TOKEN:
     exit(1)
 
 # ============================================
-# BOT SETUP - MUST BE FIRST
+# BOT SETUP
 # ============================================
 
 intents = discord.Intents.default()
@@ -22,6 +22,18 @@ intents.members = True
 intents.guilds = True
 
 bot = commands.Bot(command_prefix='.', intents=intents)
+
+# ============================================
+# GLOBAL ADMIN CHECK - EVERY COMMAND REQUIRES ADMIN
+# ============================================
+
+async def global_admin_check(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need to be an **Administrator** to use this bot.", ephemeral=True)
+        return False
+    return True
+
+bot.tree.interaction_check = global_admin_check
 
 # ============================================
 # DATA STORAGE
@@ -64,7 +76,7 @@ async def on_ready():
     print(f'✅ {bot.user} is online!')
     try:
         synced = await bot.tree.sync()
-        print(f'✅ Synced {len(synced)} slash commands')
+        print(f'✅ Synced {len(synced)} admin-only commands')
     except Exception as e:
         print(f'❌ Failed to sync: {e}')
 
@@ -132,50 +144,34 @@ async def on_member_join(member):
 # COMMAND SYNC
 # ============================================
 
-@bot.tree.command(name='refresh', description='Refresh slash commands (Admin only)')
-@app_commands.default_permissions(administrator=True)
+@bot.tree.command(name='refresh', description='Refresh slash commands')
 async def refresh_commands(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     try:
         synced = await bot.tree.sync()
-        await interaction.followup.send(f'✅ Refreshed {len(synced)} commands!', ephemeral=True)
+        await interaction.followup.send(f'✅ Refreshed {len(synced)} admin-only commands!', ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f'❌ Error: {e}', ephemeral=True)
 
 # ============================================
-# ANNOUNCEMENT COMMANDS - ADMIN ONLY
+# ANNOUNCEMENT COMMANDS
 # ============================================
 
-@bot.tree.command(name='annc', description='Send a message (Admin only)')
+@bot.tree.command(name='annc', description='Send a message')
 @app_commands.describe(message='The message to send')
-@app_commands.default_permissions(administrator=True)
 async def announce(interaction: discord.Interaction, message: str):
-    """Send a plain text message - Admin only"""
     await interaction.response.send_message("✅ Message sent!", ephemeral=True)
     await interaction.channel.send(message)
 
-@bot.tree.command(name='anncimg', description='Send a message with an image (Admin only)')
-@app_commands.describe(
-    message='The message to send',
-    image_url='Paste the image URL from discord (right-click image → Copy Link)'
-)
-@app_commands.default_permissions(administrator=True)
+@bot.tree.command(name='anncimg', description='Send a message with an image')
+@app_commands.describe(message='The message to send', image_url='Paste the image URL')
 async def announce_with_image(interaction: discord.Interaction, message: str, image_url: str):
-    """Send a message with an image - Admin only"""
     await interaction.response.send_message("✅ Announcement with image sent!", ephemeral=True)
     await interaction.channel.send(f"{message}\n{image_url}")
 
-@bot.tree.command(name='anncembed', description='Send a fancy embed with image (Admin only)')
-@app_commands.describe(
-    title='Embed title',
-    description='Embed description',
-    image_url='Paste image URL here',
-    color='Color (red, green, blue, yellow, purple)'
-)
-@app_commands.default_permissions(administrator=True)
+@bot.tree.command(name='anncembed', description='Send a fancy embed with image')
+@app_commands.describe(title='Embed title', description='Embed description', image_url='Image URL', color='Color')
 async def announce_embed(interaction: discord.Interaction, title: str, description: str, image_url: str = None, color: str = "blue"):
-    """Send a nice embed with optional image - Admin only"""
-    
     colors = {
         "red": discord.Color.red(),
         "green": discord.Color.green(),
@@ -185,12 +181,7 @@ async def announce_embed(interaction: discord.Interaction, title: str, descripti
     }
     embed_color = colors.get(color.lower(), discord.Color.blue())
     
-    embed = discord.Embed(
-        title=f"📢 {title}",
-        description=description,
-        color=embed_color,
-        timestamp=datetime.now()
-    )
+    embed = discord.Embed(title=f"📢 {title}", description=description, color=embed_color, timestamp=datetime.now())
     if image_url:
         embed.set_image(url=image_url)
     embed.set_footer(text=f"Announced by {interaction.user.name}")
@@ -198,19 +189,12 @@ async def announce_embed(interaction: discord.Interaction, title: str, descripti
     await interaction.response.send_message("✅ Embed announcement sent!", ephemeral=True)
     await interaction.channel.send(embed=embed)
 
-@bot.tree.command(name='anncf', description='Upload a file from your computer (Admin only)')
+@bot.tree.command(name='anncf', description='Upload a file')
 @app_commands.describe(message='The message to send with your file')
-@app_commands.default_permissions(administrator=True)
 async def announce_with_file(interaction: discord.Interaction, message: str):
-    """Upload a file from your computer - Admin only"""
-    
     await interaction.response.send_message(
-        "📎 **Now upload your file**\n"
-        "1. Type your message above\n"
-        "2. Click the + button\n"
-        "3. Upload your image/file\n"
-        "4. Send the message\n\n"
-        f"Message to send: `{message}`",
+        "📎 **Now upload your file**\nClick the + button and upload your file\n\n"
+        f"Message: `{message}`",
         ephemeral=True
     )
     
@@ -220,10 +204,8 @@ async def announce_with_file(interaction: discord.Interaction, message: str):
     try:
         msg = await bot.wait_for('message', timeout=60, check=check)
         attachment = msg.attachments[0]
-        
         await interaction.channel.send(content=message, file=await attachment.to_file())
         await interaction.followup.send("✅ Announcement with file sent!", ephemeral=True)
-        
     except asyncio.TimeoutError:
         await interaction.followup.send("❌ Timed out. Please try again.", ephemeral=True)
 
@@ -237,7 +219,6 @@ async def ping(interaction: discord.Interaction):
 
 @bot.tree.command(name='purge', description='Delete messages')
 @app_commands.describe(amount='Number of messages to delete (1-100)')
-@app_commands.default_permissions(manage_messages=True)
 async def purge(interaction: discord.Interaction, amount: int):
     if amount > 100:
         amount = 100
@@ -247,7 +228,6 @@ async def purge(interaction: discord.Interaction, amount: int):
 
 @bot.tree.command(name='kick', description='Kick a member')
 @app_commands.describe(member='Member to kick', reason='Kick reason')
-@app_commands.default_permissions(kick_members=True)
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     await member.kick(reason=reason)
     embed = discord.Embed(title="✅ Member Kicked", description=f"{member.mention} was kicked\nReason: {reason}", color=discord.Color.red())
@@ -255,7 +235,6 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
 
 @bot.tree.command(name='ban', description='Ban a member')
 @app_commands.describe(member='Member to ban', reason='Ban reason')
-@app_commands.default_permissions(ban_members=True)
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     await member.ban(reason=reason)
     embed = discord.Embed(title="✅ Member Banned", description=f"{member.mention} was banned\nReason: {reason}", color=discord.Color.red())
@@ -263,7 +242,6 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
 
 @bot.tree.command(name='timeout', description='Timeout a member')
 @app_commands.describe(member='Member to timeout', minutes='Duration in minutes', reason='Timeout reason')
-@app_commands.default_permissions(moderate_members=True)
 async def timeout(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str = "No reason"):
     duration = timedelta(minutes=minutes)
     await member.timeout(duration, reason=reason)
@@ -271,7 +249,6 @@ async def timeout(interaction: discord.Interaction, member: discord.Member, minu
 
 @bot.tree.command(name='warn', description='Warn a member')
 @app_commands.describe(member='Member to warn', reason='Warning reason')
-@app_commands.default_permissions(kick_members=True)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason"):
     guild_id = str(interaction.guild_id)
     if guild_id not in warns:
@@ -302,9 +279,8 @@ async def warns_cmd(interaction: discord.Interaction, member: discord.Member):
         embed.add_field(name=f'Warn {i}', value=f'Reason: {w["reason"]}\nBy: {w["by"]}', inline=False)
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name='slowmode', description='Set slowmode in current channel')
+@bot.tree.command(name='slowmode', description='Set slowmode')
 @app_commands.describe(seconds='Slowmode delay in seconds')
-@app_commands.default_permissions(manage_channels=True)
 async def slowmode(interaction: discord.Interaction, seconds: int):
     if seconds > 21600:
         seconds = 21600
@@ -313,7 +289,6 @@ async def slowmode(interaction: discord.Interaction, seconds: int):
 
 @bot.tree.command(name='lock', description='Lock a channel')
 @app_commands.describe(channel='Channel to lock')
-@app_commands.default_permissions(manage_channels=True)
 async def lock(interaction: discord.Interaction, channel: discord.TextChannel = None):
     channel = channel or interaction.channel
     await channel.set_permissions(interaction.guild.default_role, send_messages=False)
@@ -321,7 +296,6 @@ async def lock(interaction: discord.Interaction, channel: discord.TextChannel = 
 
 @bot.tree.command(name='unlock', description='Unlock a channel')
 @app_commands.describe(channel='Channel to unlock')
-@app_commands.default_permissions(manage_channels=True)
 async def unlock(interaction: discord.Interaction, channel: discord.TextChannel = None):
     channel = channel or interaction.channel
     await channel.set_permissions(interaction.guild.default_role, send_messages=True)
@@ -333,7 +307,6 @@ async def unlock(interaction: discord.Interaction, channel: discord.TextChannel 
 
 @bot.tree.command(name='dm', description='Direct message a user')
 @app_commands.describe(user='The user to message', message='The message to send')
-@app_commands.default_permissions(administrator=True)
 async def dm_user(interaction: discord.Interaction, user: discord.User, message: str):
     if interaction.user.id in dm_cooldown:
         time_diff = (datetime.now() - dm_cooldown[interaction.user.id]).total_seconds()
@@ -356,7 +329,6 @@ async def dm_user(interaction: discord.Interaction, user: discord.User, message:
 
 @bot.tree.command(name='reply', description='Reply to a user via DM')
 @app_commands.describe(user_id='The user ID to reply to', message='The message to send')
-@app_commands.default_permissions(administrator=True)
 async def reply_to_user(interaction: discord.Interaction, user_id: str, message: str):
     try:
         user = await bot.fetch_user(int(user_id))
@@ -372,7 +344,6 @@ async def reply_to_user(interaction: discord.Interaction, user_id: str, message:
         await interaction.response.send_message(f"❌ Error: {str(e)[:100]}", ephemeral=True)
 
 @bot.tree.command(name='conversations', description='View all active DM conversations')
-@app_commands.default_permissions(administrator=True)
 async def list_conversations(interaction: discord.Interaction):
     if not dm_messages:
         await interaction.response.send_message("📭 No active conversations.", ephemeral=True)
@@ -392,7 +363,6 @@ async def list_conversations(interaction: discord.Interaction):
 
 @bot.tree.command(name='setcontrol', description='Set channel for DM notifications')
 @app_commands.describe(channel='The channel to send DM notifications to')
-@app_commands.default_permissions(administrator=True)
 async def set_control_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     config = load_config(interaction.guild_id)
     config['control_channel'] = channel.id
@@ -458,7 +428,6 @@ async def remind(interaction: discord.Interaction, minutes: int, message: str):
 # ============================================
 
 @bot.tree.command(name='filter', description='Manage filtered words')
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.choices(action=[
     app_commands.Choice(name='add', value='add'),
     app_commands.Choice(name='remove', value='remove'),
